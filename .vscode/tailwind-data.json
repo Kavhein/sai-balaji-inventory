@@ -1,0 +1,13 @@
+{
+    "version": 1.1,
+    "atDirectives": [
+        {
+            "name": "@theme",
+            "description": "Tailwind CSS v4 theme block."
+        },
+        {
+            "name": "@import \"tailwindcss\"",
+            "description": "Tailwind CSS v4 entry point."
+        }
+    ]
+}

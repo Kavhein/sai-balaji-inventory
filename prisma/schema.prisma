@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+model Medicine {
+  id            Int      @id @default(autoincrement())
+  name          String
+  category      String   // "Eye" or "Diabetes"
+  manufacturer  String   @default("Generic")
+  batch_no      String   @default("BATCH001")
+  exp_date      DateTime @default(now()) // Simplification for MVP
+  hsn_code      String   @default("3004")
+  gst_rate      Float    @default(5.0)    // Percentage
+  stock_quantity Int     @default(0)
+  unit_price    Float
+  is_available  Boolean  @default(true)
+  sales         InvoiceItem[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Invoice {
+  id            Int      @id @default(autoincrement())
+  invoice_no    String   @unique // Format: INV/24-25/001
+  patient_name  String
+  mobile_no     String?
+  age           String?
+  doctor_name   String
+  address       String?
+  items         InvoiceItem[]
+  
+  subtotal      Float
+  gst_amount    Float
+  total_amount  Float
+  
+  payment_mode  String   @default("CASH") // CASH, CARD, UPI
+  reason        String?  // Reason/Diagnosis
+  createdAt     DateTime @default(now())
+  
+  patient       Patient? @relation(fields: [patient_id], references: [id])
+  patient_id    Int?
+}
+
+model Patient {
+  id            Int      @id @default(autoincrement())
+  name          String
+  mobile_no     String   @unique
+  address       String?
+  history       Invoice[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model InvoiceItem {
+  id            Int      @id @default(autoincrement())
+  invoice_id    Int
+  invoice       Invoice  @relation(fields: [invoice_id], references: [id])
+  medicine_id   Int
+  medicine      Medicine @relation(fields: [medicine_id], references: [id])
+  
+  quantity      Int
+  unit_price    Float    // Price at moment of sale
+  gst_rate      Float
+  total_price   Float
+}
+
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  action    String   // "ADD_MEDICINE", "DELETE_MEDICINE", "CREATE_INVOICE", etc.
+  details   String   // Human readable description
+  userRole  String   // "doctor" or "sister"
+  createdAt DateTime @default(now())
+}
+

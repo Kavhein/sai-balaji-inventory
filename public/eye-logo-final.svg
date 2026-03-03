@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">
+  <!-- Clean Background -->
+  <rect width="400" height="300" fill="white"/>
+  
+  <!-- Outer Eye Shape (The thick blue border) -->
+  <path d="M40 150 C40 100 120 50 200 50 C280 50 360 100 360 150 C360 200 280 250 200 250 C120 250 40 200 40 150 Z" 
+        fill="none" stroke="#37a6d6" stroke-width="24" stroke-linejoin="round"/>
+  
+  <!-- Inner Blue Ring -->
+  <circle cx="200" cy="150" r="75" fill="#37a6d6"/>
+  
+  <!-- Light Blue Iris -->
+  <circle cx="200" cy="150" r="62" fill="#b0e0f5"/>
+  
+  <!-- The Sharp Star-Burst Pupil (Matched to user image) -->
+  <path d="M200 85 
+           L212 125 
+           L255 110 
+           L230 145 
+           L265 185 
+           L215 175 
+           L200 215 
+           L185 175 
+           L135 185 
+           L170 145 
+           L145 110 
+           L188 125 Z" 
+        fill="#1e3a6e"/>
+        
+  <!-- The characteristic white reflection dot -->
+  <circle cx="178" cy="135" r="5" fill="white"/>
+</svg>
