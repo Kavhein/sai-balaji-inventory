@@ -9,7 +9,7 @@ export default function DeletePatientButton({ id, isAdmin }: { id: number; isAdm
     const [loading, setLoading] = useState(false);
 
     const handleDelete = async () => {
-        if (confirm("Are you sure you want to delete this patient? This will NOT delete their previous invoices, but they will be disconnected from this patient profile.")) {
+        if (confirm("Are you sure you want to delete this patient? This will ALSO PERMANENTLY DELETE all their previous invoices, prescriptions, and associated records.")) {
             setLoading(true);
             try {
                 await deletePatient(id);

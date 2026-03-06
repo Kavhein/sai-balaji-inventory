@@ -98,14 +98,25 @@ export async function addPatient(formData: FormData) {
 
 export async function deletePatient(id: number) {
     const patient = await prisma.patient.findUnique({ where: { id } });
+    if (!patient) return;
+
+    const invoices = await prisma.invoice.findMany({ where: { patient_id: id } });
+    const invoiceIds = invoices.map(i => i.id);
+
     await prisma.$transaction(async (tx) => {
-        await tx.invoice.updateMany({ where: { patient_id: id }, data: { patient_id: null } });
+        if (invoiceIds.length > 0) {
+            await tx.invoiceItem.deleteMany({ where: { invoice_id: { in: invoiceIds } } });
+        }
+        await tx.invoice.deleteMany({ where: { patient_id: id } });
+        await tx.$executeRawUnsafe(`DELETE FROM "EyePrescription" WHERE patient_id = $1`, id);
         await tx.patient.delete({ where: { id } });
     });
-    if (patient) {
-        await recordLog("DELETE_PATIENT", `Deleted Patient Record: ${patient.name} (Mobile: ${patient.mobile_no}). All associated personal data removed.`);
-    }
+
+    await recordLog("DELETE_PATIENT", `Deleted Patient Record: ${patient.name} (Mobile: ${patient.mobile_no}). All associated bills and records removed.`);
     await refresh('/patients');
+    await refresh('/billing');
+    await refresh('/reports');
+    await refresh('/');
 }
 
 export async function searchPatient(mobile: string): Promise<Patient | null> {
@@ -601,7 +612,7 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
 }
 
 export async function getActivityLogs(): Promise<ActivityLog[]> {
-    return await (prisma.activityLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }) as unknown as Promise<ActivityLog[]>);
+    return await (prisma.activityLog.findMany({ orderBy: { createdAt: 'desc' }, take: 1000 }) as unknown as Promise<ActivityLog[]>);
 }
 
 // --- Legacy Support ---
@@ -615,7 +626,6 @@ export async function fullSystemReset() {
         prisma.invoice.deleteMany({}),
         prisma.patient.deleteMany({}),
         prisma.medicine.deleteMany({}),
-        prisma.activityLog.deleteMany({}),
     ]);
 
     await recordLog("FULL_SYSTEM_RESET", "The entire clinic database was wiped for a clean start.");
