@@ -166,8 +166,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                     </div>
 
                     {/* Chart Core */}
-                    <div className="relative overflow-x-auto pb-10 no-scrollbar">
-                        <div className={`h-[450px] flex items-end relative px-2 ${weeklyTrend.length > 15 ? 'min-w-[1400px] gap-2' : 'w-full gap-5'}`}>
+                    <div className="relative overflow-x-auto pt-32 pb-10 no-scrollbar">
+                        <div className={`h-[500px] flex items-end relative px-2 ${weeklyTrend.length > 15 ? 'min-w-[1400px] gap-2' : 'w-full gap-5'}`}>
                             {/* Grid Lines */}
                             <div className="absolute inset-0 flex flex-col justify-between py-2 pointer-events-none pb-12">
                                 {[0, 1, 2, 3, 4].map(i => (
@@ -183,41 +183,47 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                                 const drillLink = getDrillDownLink(item, i);
 
                                 return (
-                                    <div key={i} className="flex flex-col items-center group/item h-full justify-end relative z-10 flex-1 min-w-[32px]">
-                                        {/* Exact Amount Label (Always Visible) */}
-                                        <div className="absolute bottom-[calc(var(--height)+12px)] left-1/2 -translate-x-1/2 z-20 pointer-events-none" style={{ '--height': `${Math.max(height, 5)}%` } as any}>
-                                            <p className={`text-[8px] font-black transition-all duration-300 tabular-nums ${item.amount > 0 ? 'text-slate-900 opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
-                                                ₹{Math.round(item.amount).toLocaleString('en-IN')}
-                                            </p>
+                                    <div key={i} className="flex flex-col items-center group/item h-full justify-end relative z-30 flex-1 min-w-[32px]">
+                                        {/* Exact Amount Label (Ultra High Visibility) */}
+                                        <div
+                                            className={`absolute z-50 pointer-events-none transition-all duration-700 flex justify-center w-full ${item.amount > 0 ? 'opacity-100' : 'opacity-0'}`}
+                                            style={{ bottom: `calc(${Math.max(height, 5)}% + 14px)` }}
+                                        >
+                                            <div className="bg-slate-950 border-2 border-slate-800 px-3 py-1.5 rounded-xl shadow-[0_10px_30px_-5px_rgba(0,0,0,0.5)] flex items-center gap-1.5 backdrop-blur-xl">
+                                                <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                                                <p className="text-[10px] font-black text-white tabular-nums whitespace-nowrap leading-none tracking-tight">
+                                                    ₹{Math.round(item.amount).toLocaleString('en-IN')}
+                                                </p>
+                                            </div>
                                         </div>
 
                                         {/* Bar Link or Div */}
                                         {drillLink ? (
                                             <Link
                                                 href={drillLink}
-                                                className="w-full h-full flex flex-col justify-end group/bar"
+                                                className="w-full h-full flex flex-col justify-end group/bar relative z-20"
                                             >
                                                 <div
                                                     className={`w-full max-w-[48px] mx-auto rounded-3xl transition-all duration-700 relative flex flex-col justify-end overflow-hidden shadow-sm group-hover/bar:shadow-2xl group-hover/bar:shadow-blue-500/30 group-hover/bar:-translate-y-2 group-hover/bar:scale-105 active:scale-95`}
                                                     style={{ height: `${Math.max(height, 5)}%` }}
                                                 >
-                                                    <div className={`absolute inset-0 transition-colors duration-500 ${item.amount > 0 ? 'bg-gradient-to-t from-blue-600 via-blue-500 to-indigo-400' : 'bg-slate-100'}`}></div>
+                                                    <div className={`absolute inset-0 transition-colors duration-500 ${item.amount > 0 ? 'bg-gradient-to-t from-blue-700 via-blue-500 to-indigo-400' : 'bg-slate-100'}`}></div>
                                                     <div className="absolute top-0 left-0 right-0 h-2 bg-white/20 blur-[1px]"></div>
-                                                    <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/10 to-transparent"></div>
+                                                    <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/20 to-transparent"></div>
                                                 </div>
                                             </Link>
                                         ) : (
                                             <div
-                                                className={`w-full max-w-[48px] mx-auto rounded-3xl transition-all duration-1000 relative flex flex-col justify-end overflow-hidden shadow-sm group-hover/item:shadow-xl group-hover/item:-translate-y-1`}
+                                                className={`w-full max-w-[48px] mx-auto rounded-3xl transition-all duration-1000 relative flex flex-col justify-end overflow-hidden shadow-sm group-hover/item:shadow-xl group-hover/item:-translate-y-1 relative z-20`}
                                                 style={{ height: `${Math.max(height, 5)}%` }}
                                             >
-                                                <div className={`absolute inset-0 ${item.amount > 0 ? 'bg-gradient-to-t from-blue-600 via-blue-500 to-indigo-400' : 'bg-slate-100'}`}></div>
+                                                <div className={`absolute inset-0 ${item.amount > 0 ? 'bg-gradient-to-t from-blue-700 via-blue-500 to-indigo-400' : 'bg-slate-100'}`}></div>
                                                 <div className="absolute top-0 left-0 right-0 h-2 bg-white/10"></div>
                                             </div>
                                         )}
 
                                         {/* X-Axis Label */}
-                                        <div className="h-12 flex items-center pt-4">
+                                        <div className="h-12 flex items-center pt-4 relative z-10">
                                             <p className={`text-[9px] font-black text-slate-400 transition-colors duration-300 group-hover/item:text-slate-900 uppercase tracking-tighter whitespace-nowrap
                                                 ${weeklyTrend.length > 20 && i % 4 !== 0 ? 'hidden md:block opacity-20' : ''}`}>
                                                 {item.label}
