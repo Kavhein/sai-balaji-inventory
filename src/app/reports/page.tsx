@@ -12,7 +12,7 @@ import Link from "next/link";
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ tf?: string; y?: string; m?: string }> }) {
     const params = await searchParams;
-    const timeframe = (params.tf as 'daily' | 'weekly' | 'monthly' | 'yearly') || 'weekly';
+    const timeframe = (params.tf as 'daily' | 'monthly' | 'yearly') || 'daily';
     const yearVal = params.y ? parseInt(params.y) : undefined;
     const monthVal = params.m ? parseInt(params.m) : undefined;
 
@@ -24,14 +24,13 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     } = data;
 
     // Simple daily growth (today vs yesterday)
-    const yesterdayAmount = timeframe === 'weekly' ? (weeklyTrend[weeklyTrend.length - 2]?.amount || 0) : daily;
+    const yesterdayAmount = timeframe === 'daily' ? (weeklyTrend[weeklyTrend.length - 2]?.amount || 0) : daily;
     const dailyGrowth = yesterdayAmount === 0 ? (daily > 0 ? 100 : 0) : Math.round(((daily - yesterdayAmount) / yesterdayAmount) * 100);
 
     const maxAmount = Math.max(...weeklyTrend.map((t: { amount: number }) => t.amount), 500);
 
     const timeframeLabels = {
         daily: yearVal && monthVal ? `DAILY REVENUE: ${new Date(yearVal, monthVal - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}` : '24-HOUR PERFORMANCE (TODAY)',
-        weekly: 'WEEKLY PERFORMANCE CYCLE',
         monthly: yearVal ? `MONTHLY PERFORMANCE: YEAR ${yearVal}` : 'MONTHLY REVENUE TREND',
         yearly: 'FISCAL PERFORMANCE: 10-YEAR HISTORICAL'
     };
@@ -91,7 +90,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             {/* 2. Enhanced Metrics Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
                 <StatCard title="Session Collections" amount={daily} icon={DollarSign} color="blue" percentage={Math.abs(dailyGrowth)} isUp={dailyGrowth >= 0} />
-                <StatCard title="Retention Baseline" amount={weekly} icon={Calendar} color="indigo" percentage={Math.abs(weeklyGrowth)} isUp={weeklyGrowth >= 0} />
+                <StatCard title="Growth Capital" amount={monthly} icon={Calendar} color="indigo" percentage={Math.abs(monthlyForecast > 0 ? Math.round((monthly / monthlyForecast) * 100) : 0)} isUp={true} />
                 <div className="premium-card p-6 rounded-[32px] bg-gradient-to-br from-emerald-600 to-teal-500 border-none text-white relative overflow-hidden flex flex-col justify-between group">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-16 -mt-16 group-hover:bg-white/20 transition-all duration-700"></div>
                     <div className="flex justify-between items-start relative z-10">
@@ -151,7 +150,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
                         {/* Logic Toggle */}
                         <div className="flex glass-panel p-1.5 rounded-[24px] gap-1 border border-slate-200/40 shadow-sm overflow-x-auto scroller-hide bg-slate-50/50">
-                            {['daily', 'weekly', 'monthly', 'yearly'].map((tf) => (
+                            {['daily', 'monthly', 'yearly'].map((tf) => (
                                 <Link
                                     key={tf}
                                     href={`/reports?tf=${tf}${tf === 'monthly' && yearVal ? `&y=${yearVal}` : ''}${tf === 'daily' && yearVal && monthVal ? `&y=${yearVal}&m=${monthVal}` : ''}`}
@@ -168,7 +167,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
                     {/* Chart Core */}
                     <div className="relative overflow-x-auto pb-10 no-scrollbar">
-                        <div className={`h-[400px] flex items-end relative px-2 ${weeklyTrend.length > 15 ? 'min-w-[1400px] gap-2.5' : 'w-full gap-4'}`}>
+                        <div className={`h-[450px] flex items-end relative px-2 ${weeklyTrend.length > 15 ? 'min-w-[1400px] gap-2' : 'w-full gap-5'}`}>
                             {/* Grid Lines */}
                             <div className="absolute inset-0 flex flex-col justify-between py-2 pointer-events-none pb-12">
                                 {[0, 1, 2, 3, 4].map(i => (
@@ -185,13 +184,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
                                 return (
                                     <div key={i} className="flex flex-col items-center group/item h-full justify-end relative z-10 flex-1 min-w-[32px]">
-                                        {/* Tooltip */}
-                                        <div className="absolute bottom-full mb-4 opacity-0 group-hover/item:opacity-100 transition-all duration-300 -translate-y-2 group-hover/item:-translate-y-4 z-50 pointer-events-none scale-90 group-hover/item:scale-100">
-                                            <div className="bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-[0_20px_40px_-12px_rgba(0,0,0,0.3)] relative whitespace-nowrap border border-white/10">
-                                                <p className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-1">{item.fullLabel}</p>
-                                                <p className="text-sm font-black text-blue-400 tabular-nums">₹{item.amount.toLocaleString('en-IN')}</p>
-                                                <div className="absolute top-full left-1/2 -ml-1.5 border-8 border-transparent border-t-slate-900"></div>
-                                            </div>
+                                        {/* Exact Amount Label (Always Visible) */}
+                                        <div className="absolute bottom-[calc(var(--height)+12px)] left-1/2 -translate-x-1/2 z-20 pointer-events-none" style={{ '--height': `${Math.max(height, 5)}%` } as any}>
+                                            <p className={`text-[8px] font-black transition-all duration-300 tabular-nums ${item.amount > 0 ? 'text-slate-900 opacity-100 scale-100' : 'opacity-0 scale-50'}`}>
+                                                ₹{Math.round(item.amount).toLocaleString('en-IN')}
+                                            </p>
                                         </div>
 
                                         {/* Bar Link or Div */}
