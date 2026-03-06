@@ -313,10 +313,22 @@ export async function getDailyStats() {
     return { daily: totalDaily, dailyPatientCount: totalPatients };
 }
 
-export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'weekly'): Promise<ReportData> {
+export async function getFinancialReports(
+    timeframe: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'weekly',
+    yearVal?: number,
+    monthVal?: number
+): Promise<ReportData> {
     const now = new Date();
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istNow = new Date(now.getTime() + istOffset);
+
+    // Current IST Year/Month
+    const currentYear = istNow.getUTCFullYear();
+    const currentMonth = istNow.getUTCMonth(); // 0-indexed
+
+    // Determine target year/month for drill-down
+    const targetYear = yearVal || currentYear;
+    const targetMonth = (monthVal !== undefined) ? monthVal - 1 : currentMonth;
 
     // Start of Today (IST)
     const startOfIstToday = new Date(istNow);
@@ -327,8 +339,17 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
     let rangeEndUTC: Date;
 
     if (timeframe === 'daily') {
-        rangeStartUTC = new Date(startOfIstToday.getTime() - istOffset);
-        rangeEndUTC = new Date(rangeStartUTC.getTime() + 24 * 60 * 60 * 1000 - 1);
+        if (yearVal && monthVal) {
+            // Full month view (all days of specific month)
+            const monthStartIST = new Date(Date.UTC(targetYear, targetMonth, 1));
+            rangeStartUTC = new Date(monthStartIST.getTime() - istOffset);
+            const nextMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 1));
+            rangeEndUTC = new Date(nextMonth.getTime() - 1 - istOffset);
+        } else {
+            // Today's 24h performance
+            rangeStartUTC = new Date(startOfIstToday.getTime() - istOffset);
+            rangeEndUTC = new Date(rangeStartUTC.getTime() + 24 * 60 * 60 * 1000 - 1);
+        }
     } else if (timeframe === 'weekly') {
         const diff = startOfIstToday.getUTCDay(); // 0 is Sunday
         const startOfWeekIST = new Date(startOfIstToday);
@@ -336,20 +357,18 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
         rangeStartUTC = new Date(startOfWeekIST.getTime() - istOffset);
         rangeEndUTC = new Date(rangeStartUTC.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
     } else if (timeframe === 'monthly') {
-        const monthStartIST = new Date(startOfIstToday);
-        monthStartIST.setUTCDate(1);
-        rangeStartUTC = new Date(monthStartIST.getTime() - istOffset);
-        const nextMonth = new Date(monthStartIST);
-        nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
-        rangeEndUTC = new Date(nextMonth.getTime() - 1 - istOffset);
-    } else { // yearly
-        const yearStartIST = new Date(startOfIstToday);
-        yearStartIST.setUTCMonth(0, 1);
-        yearStartIST.setUTCHours(0, 0, 0, 0);
+        // 12 months of a specific year
+        const yearStartIST = new Date(Date.UTC(targetYear, 0, 1));
         rangeStartUTC = new Date(yearStartIST.getTime() - istOffset);
-        const nextYear = new Date(yearStartIST);
-        nextYear.setUTCFullYear(nextYear.getUTCFullYear() + 1);
+        const nextYear = new Date(Date.UTC(targetYear + 1, 0, 1));
         rangeEndUTC = new Date(nextYear.getTime() - 1 - istOffset);
+    } else { // yearly
+        // Last 10 years
+        const startYear = currentYear - 9;
+        const startYearIST = new Date(Date.UTC(startYear, 0, 1));
+        rangeStartUTC = new Date(startYearIST.getTime() - istOffset);
+        const endYearIST = new Date(Date.UTC(currentYear + 1, 0, 1));
+        rangeEndUTC = new Date(endYearIST.getTime() - 1 - istOffset);
     }
 
     // 2. Fetch all invoices AND prescriptions for the range
@@ -364,7 +383,6 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
         )
     ]);
 
-    // Create a unified transaction list for trend aggregation
     const allTransactions = [
         ...invoices.map(i => ({ amount: i.total_amount, createdAt: i.createdAt })),
         ...prescriptions.map(p => ({ amount: parseFloat(p.total_amount || 0), createdAt: p.createdAt }))
@@ -374,36 +392,60 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
     const revenueTrend: RevenueTrend[] = [];
 
     if (timeframe === 'daily') {
-        for (let i = 0; i < 8; i++) {
-            const blockStartIST = new Date(startOfIstToday);
-            blockStartIST.setUTCHours(i * 3, 0, 0, 0);
-            const blockEndIST = new Date(startOfIstToday);
-            blockEndIST.setUTCHours((i + 1) * 3, 0, 0, -1);
+        if (yearVal && monthVal) {
+            // Drill-down: Month -> Days
+            const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+            for (let i = 0; i < daysInMonth; i++) {
+                const targetDayIST = new Date(Date.UTC(targetYear, targetMonth, 1 + i));
+                const startT = targetDayIST.getTime();
+                const endT = startT + 24 * 60 * 60 * 1000 - 1;
 
-            const startT = blockStartIST.getTime();
-            const endT = blockEndIST.getTime();
+                const sum = allTransactions
+                    .filter(tx => {
+                        const t = new Date(tx.createdAt).getTime() + istOffset;
+                        return t >= startT && t <= endT;
+                    })
+                    .reduce((acc, tx) => acc + tx.amount, 0);
 
-            const sum = allTransactions
-                .filter(tx => {
-                    const t = new Date(tx.createdAt).getTime() + istOffset;
-                    return t >= startT && t <= endT;
-                })
-                .reduce((acc, tx) => acc + tx.amount, 0);
+                revenueTrend.push({
+                    label: `${1 + i}`,
+                    fullLabel: targetDayIST.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }),
+                    amount: sum
+                });
+            }
+        } else {
+            // Default: 24h Today
+            for (let i = 0; i < 8; i++) {
+                const blockStartIST = new Date(startOfIstToday);
+                blockStartIST.setUTCHours(i * 3, 0, 0, 0);
+                const blockEndIST = new Date(startOfIstToday);
+                blockEndIST.setUTCHours((i + 1) * 3, 0, 0, -1);
 
-            const hourLabel = blockStartIST.getUTCHours();
-            const ampm = hourLabel >= 12 ? 'PM' : 'AM';
-            const displayHour = hourLabel % 12 || 12;
+                const startT = blockStartIST.getTime();
+                const endT = blockEndIST.getTime();
 
-            revenueTrend.push({
-                label: `${displayHour}${ampm}`,
-                fullLabel: `${displayHour}:00 ${ampm} - ${displayHour + 3 > 12 ? (displayHour + 3) % 12 || 12 : displayHour + 3}${hourLabel + 3 >= 12 ? 'PM' : 'AM'}`,
-                amount: sum
-            });
+                const sum = allTransactions
+                    .filter(tx => {
+                        const t = new Date(tx.createdAt).getTime() + istOffset;
+                        return t >= startT && t <= endT;
+                    })
+                    .reduce((acc, tx) => acc + tx.amount, 0);
+
+                const hourLabel = blockStartIST.getUTCHours();
+                const ampm = hourLabel >= 12 ? 'PM' : 'AM';
+                const displayHour = hourLabel % 12 || 12;
+
+                revenueTrend.push({
+                    label: `${displayHour}${ampm}`,
+                    fullLabel: `${displayHour}:00 ${ampm} - ${displayHour + 3 > 12 ? (displayHour + 3) % 12 || 12 : displayHour + 3}${hourLabel + 3 >= 12 ? 'PM' : 'AM'}`,
+                    amount: sum
+                });
+            }
         }
     } else if (timeframe === 'weekly') {
-        const currentDay = startOfIstToday.getUTCDay();
+        const diff = startOfIstToday.getUTCDay();
         const startOfWeekIST = new Date(startOfIstToday);
-        startOfWeekIST.setUTCDate(startOfIstToday.getUTCDate() - currentDay);
+        startOfWeekIST.setUTCDate(startOfIstToday.getUTCDate() - diff);
 
         for (let i = 0; i < 7; i++) {
             const targetDayIST = new Date(startOfWeekIST);
@@ -425,40 +467,11 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
             });
         }
     } else if (timeframe === 'monthly') {
-        const monthStartIST = new Date(startOfIstToday);
-        monthStartIST.setUTCDate(1);
-        const daysInMonth = new Date(monthStartIST.getUTCFullYear(), monthStartIST.getUTCMonth() + 1, 0).getDate();
-
-        for (let i = 0; i < daysInMonth; i++) {
-            const targetDayIST = new Date(monthStartIST);
-            targetDayIST.setUTCDate(1 + i);
-            const startT = targetDayIST.getTime();
-            const endT = startT + 24 * 60 * 60 * 1000 - 1;
-
-            const sum = allTransactions
-                .filter(tx => {
-                    const t = new Date(tx.createdAt).getTime() + istOffset;
-                    return t >= startT && t <= endT;
-                })
-                .reduce((acc, tx) => acc + tx.amount, 0);
-
-            revenueTrend.push({
-                label: `${1 + i}`,
-                fullLabel: targetDayIST.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }),
-                amount: sum
-            });
-        }
-    } else if (timeframe === 'yearly') {
-        const yearStartIST = new Date(startOfIstToday);
-        yearStartIST.setUTCMonth(0, 1);
-        yearStartIST.setUTCHours(0, 0, 0, 0);
-
+        // Drill-down: Year -> Months
         for (let i = 0; i < 12; i++) {
-            const targetMonthIST = new Date(yearStartIST);
-            targetMonthIST.setUTCMonth(i);
+            const targetMonthIST = new Date(Date.UTC(targetYear, i, 1));
             const monthStartT = targetMonthIST.getTime();
-            const nextMonth = new Date(targetMonthIST);
-            nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+            const nextMonth = new Date(Date.UTC(targetYear, i + 1, 1));
             const monthEndT = nextMonth.getTime() - 1;
 
             const sum = allTransactions
@@ -474,9 +487,31 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
                 amount: sum
             });
         }
+    } else { // yearly
+        // Last 10 Years
+        for (let i = 0; i < 10; i++) {
+            const year = currentYear - 9 + i;
+            const targetYearIST = new Date(Date.UTC(year, 0, 1));
+            const yearStartT = targetYearIST.getTime();
+            const nextYear = new Date(Date.UTC(year + 1, 0, 1));
+            const yearEndT = nextYear.getTime() - 1;
+
+            const sum = allTransactions
+                .filter(tx => {
+                    const t = new Date(tx.createdAt).getTime() + istOffset;
+                    return t >= yearStartT && t <= yearEndT;
+                })
+                .reduce((acc, tx) => acc + tx.amount, 0);
+
+            revenueTrend.push({
+                label: `${year}`,
+                fullLabel: `Full Year ${year}`,
+                amount: sum
+            });
+        }
     }
 
-    // 4. Fetch Totals and Stats (Optimized separately as they are cached/fast)
+    // 4. Fetch Totals and Stats
     const { daily, dailyPatientCount } = await getDailyStats();
 
     const startOfWeekIST = new Date(startOfIstToday);
@@ -487,7 +522,6 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
     startOfMonthIST.setUTCDate(1);
     const startOfMonthUTC = new Date(startOfMonthIST.getTime() - istOffset);
 
-    // Get Weekly and Monthly Totals with optimized aggregate
     const [ws, ms, rx_ws, rx_ms] = await Promise.all([
         prisma.invoice.aggregate({ _sum: { total_amount: true }, where: { createdAt: { gte: startOfWeekUTC } } }),
         prisma.invoice.aggregate({ _sum: { total_amount: true }, where: { createdAt: { gte: startOfMonthUTC } } }),
@@ -498,7 +532,6 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
     const totalWeekly = (ws._sum.total_amount || 0) + parseFloat(rx_ws[0]?.total || 0);
     const monthlyTotal = (ms._sum.total_amount || 0) + parseFloat(rx_ms[0]?.total || 0);
 
-    // Growth and Forecast (Calculated in parallel)
     const prevWeekStart = new Date(startOfWeekUTC.getTime() - 7 * 24 * 60 * 60 * 1000);
     const [prevWs, prevRxWs] = await Promise.all([
         prisma.invoice.aggregate({
@@ -550,7 +583,6 @@ export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'month
         )
     ]);
 
-    // Unified recent transactions list
     const recentInvoices = [
         ...recentInvoicesRaw.map(inv => ({
             id: inv.id,
