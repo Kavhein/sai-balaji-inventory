@@ -46,7 +46,7 @@ export default function BillingPage() {
     }, []);
 
     const handlePatientLookup = async (mobile: string) => {
-        if (mobile.length >= 10) {
+        if (mobile.length >= 3) {
             const p = await searchPatient(mobile);
             if (p) {
                 setPatientName(p.name);
@@ -187,7 +187,7 @@ export default function BillingPage() {
                                     value={mobileNo}
                                     onChange={(e) => {
                                         setMobileNo(e.target.value);
-                                        handlePatientLookup(e.target.value);
+                                        if (e.target.value.length >= 3) handlePatientLookup(e.target.value);
                                     }}
                                     className="w-full bg-white/50 border-2 border-slate-100 focus:border-blue-500/50 rounded-2xl px-4 py-3 text-sm transition-all focus:shadow-lg focus:shadow-blue-500/10 outline-none font-bold"
                                     placeholder="Enter mobile..."

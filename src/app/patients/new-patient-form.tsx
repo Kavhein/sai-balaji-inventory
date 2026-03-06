@@ -29,6 +29,7 @@ export default function NewPatientForm({ medicines }: { medicines: Medicine[] })
     ]);
     const [isFound, setIsFound] = useState(false);
 
+
     const handleMobileLookup = async (mobile: string) => {
         if (mobile.length >= 10) {
             const patient = await searchPatient(mobile);
@@ -96,17 +97,11 @@ export default function NewPatientForm({ medicines }: { medicines: Medicine[] })
 
             if (result.success) {
                 // Reset
-                setPatientName("");
-                setMobileNo("");
-                setAddress("");
-                setAge("");
-                setDiagnosis("");
-                setCustomDate("");
+                setPatientName(""); setMobileNo(""); setAddress(""); setAge(""); setDiagnosis(""); setCustomDate("");
                 setItems([{ tempId: Date.now(), medicineId: "", qty: 1 }]);
 
-                alert("Patient Details Stored Successfully!");
+                alert("Patient Checkup/Purchase Recorded!");
 
-                // Only redirect to print if items were actually purchased
                 if (invoiceItems.length > 0) {
                     router.push(`/invoices/print?id=${result.invoiceId}`);
                 } else {
@@ -127,7 +122,7 @@ export default function NewPatientForm({ medicines }: { medicines: Medicine[] })
     return (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 h-fit">
             <h2 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-                <ShoppingBag className="h-4 w-4" /> Add Patient with Purchase
+                <ShoppingBag className="h-4 w-4 text-emerald-600" /> Patient Info & Purchase
             </h2>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
@@ -250,12 +245,13 @@ export default function NewPatientForm({ medicines }: { medicines: Medicine[] })
                     </button>
                 </div>
 
+
                 <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold rounded-lg shadow-sm transition-all flex items-center justify-center gap-2"
+                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold rounded-xl shadow-lg shadow-blue-200 transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-widest"
                 >
-                    {loading ? "Saving..." : <><Save className="h-4 w-4" /> Save Record</>}
+                    {loading ? "Saving..." : <><Save className="h-5 w-5" /> Save Record</>}
                 </button>
             </form>
         </div>

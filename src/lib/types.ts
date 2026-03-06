@@ -50,8 +50,43 @@ export interface Patient {
     mobile_no: string;
     address?: string | null;
     history?: Invoice[];
+    prescriptions?: EyePrescription[];
     createdAt: Date;
     updatedAt: Date;
+}
+
+export interface EyePrescription {
+    id: number;
+    patient_id: number;
+
+    // Right Eye
+    re_dv_sph?: string | null;
+    re_dv_cyl?: string | null;
+    re_dv_axis?: string | null;
+    re_dv_va?: string | null;
+    re_nv_sph?: string | null;
+    re_nv_cyl?: string | null;
+    re_nv_axis?: string | null;
+    re_nv_va?: string | null;
+
+    // Left Eye
+    le_dv_sph?: string | null;
+    le_dv_cyl?: string | null;
+    le_dv_axis?: string | null;
+    le_dv_va?: string | null;
+    le_nv_sph?: string | null;
+    le_nv_cyl?: string | null;
+    le_nv_axis?: string | null;
+    le_nv_va?: string | null;
+
+    lens_type?: string | null;
+    notes?: string | null;
+    doctor_name?: string | null;
+    pd?: string | null;
+    total_amount: number;
+    createdAt: Date;
+    updatedAt: Date;
+    patient?: Patient;
 }
 
 export interface ActivityLog {
@@ -64,6 +99,7 @@ export interface ActivityLog {
 
 export interface RevenueTrend {
     label: string;
+    fullLabel?: string;
     amount: number;
 }
 

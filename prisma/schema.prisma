@@ -53,6 +53,45 @@ model Patient {
   mobile_no     String   @unique
   address       String?
   history       Invoice[]
+  prescriptions EyePrescription[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model EyePrescription {
+  id            Int      @id @default(autoincrement())
+  patient_id    Int
+  patient       Patient  @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  
+  // Right Eye (RE) - Distance Vision (DV)
+  re_dv_sph     String?
+  re_dv_cyl     String?
+  re_dv_axis    String?
+  re_dv_va      String?
+  
+  // Right Eye (RE) - Near Vision (NV)
+  re_nv_sph     String?
+  re_nv_cyl     String?
+  re_nv_axis    String?
+  re_nv_va      String?
+  
+  // Left Eye (LE) - Distance Vision (DV)
+  le_dv_sph     String?
+  le_dv_cyl     String?
+  le_dv_axis    String?
+  le_dv_va      String?
+  
+  // Left Eye (LE) - Near Vision (NV)
+  le_nv_sph     String?
+  le_nv_cyl     String?
+  le_nv_axis    String?
+  le_nv_va      String?
+  lens_type     String?  // e.g., Bifocal, Progressive, Single Vision
+  notes         String?
+  doctor_name   String?
+  pd            String?  // Pupillary Distance
+  total_amount  Float    @default(0.0)
+  
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

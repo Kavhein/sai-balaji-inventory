@@ -4,7 +4,8 @@ import { Trash2 } from "lucide-react";
 import { deletePatient } from "../actions";
 import { useState } from "react";
 
-export default function DeletePatientButton({ id }: { id: number }) {
+export default function DeletePatientButton({ id, isAdmin }: { id: number; isAdmin?: boolean }) {
+    if (!isAdmin) return null;
     const [loading, setLoading] = useState(false);
 
     const handleDelete = async () => {

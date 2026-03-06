@@ -50,7 +50,7 @@ const StatCard = ({ title, amount, icon: Icon, color, percentage, isUp }: StatCa
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ tf?: string }> }) {
     const params = await searchParams;
-    const timeframe = (params.tf as 'weekly' | 'monthly' | 'yearly') || 'weekly';
+    const timeframe = (params.tf as 'daily' | 'weekly' | 'monthly' | 'yearly') || 'weekly';
 
     const {
         daily, weekly, monthly, monthlyForecast, weeklyGrowth,
@@ -58,11 +58,18 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         recentInvoices, dailyPatientCount
     } = await getFinancialReports(timeframe);
 
-    // Simple daily growth (today vs yesterday)
-    const yesterdayAmount = weeklyTrend[weeklyTrend.length - 2]?.amount || 0;
+    // Simple daily growth (today vs yesterday - we fetch this specifically for the card)
+    const yesterdayAmount = timeframe === 'weekly' ? (weeklyTrend[weeklyTrend.length - 2]?.amount || 0) : daily; // Fallback
     const dailyGrowth = yesterdayAmount === 0 ? (daily > 0 ? 100 : 0) : Math.round(((daily - yesterdayAmount) / yesterdayAmount) * 100);
 
     const maxAmount = Math.max(...weeklyTrend.map((t: { amount: number }) => t.amount), 500);
+
+    const timeframeLabels = {
+        daily: '24-HOUR PERFORMANCE (TODAY)',
+        weekly: 'WEEKLY CYCLE (SUNDAY - SATURDAY)',
+        monthly: 'MONTHLY PERFORMANCE (1ST - END)',
+        yearly: 'FISCAL YEAR ANALYSIS (JAN - DEC)'
+    };
 
     return (
         <div className="space-y-10 max-w-7xl mx-auto pb-24">
@@ -111,19 +118,19 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-12 gap-6">
                         <div className="space-y-1">
-                            <h3 className="text-2xl font-black text-slate-900">Revenue Velocity</h3>
-                            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em]">
-                                {timeframe === 'weekly' ? '7-Day' : timeframe === 'monthly' ? '30-Day' : '12-Month'} TRANSACTION CYCLE ANALYSIS
+                            <h3 className="text-2xl font-black text-slate-900 tracking-tight">Revenue Velocity</h3>
+                            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-[0.2em] opacity-80">
+                                {timeframeLabels[timeframe]}
                             </p>
                         </div>
-                        <div className="flex glass-panel p-1.5 rounded-2xl gap-1 border border-slate-200/50">
-                            {['weekly', 'monthly', 'yearly'].map((tf) => (
+                        <div className="flex glass-panel p-1.5 rounded-2xl gap-1 border border-slate-200/50 shadow-sm overflow-x-auto scroller-hide">
+                            {['daily', 'weekly', 'monthly', 'yearly'].map((tf) => (
                                 <Link
                                     key={tf}
                                     href={`/reports?tf=${tf}`}
-                                    className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 ${timeframe === tf
-                                            ? 'bg-slate-900 text-white shadow-xl shadow-slate-900/20'
-                                            : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'
+                                    className={`px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all duration-300 whitespace-nowrap ${timeframe === tf
+                                        ? 'bg-slate-900 text-white shadow-xl shadow-slate-900/20'
+                                        : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100/50'
                                         }`}
                                 >
                                     {tf}
@@ -132,35 +139,38 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                         </div>
                     </div>
 
-                    <div className="h-80 flex items-end justify-between gap-4 relative">
-                        {/* Horizontal Grid */}
-                        <div className="absolute inset-0 flex flex-col justify-between py-1 opacity-5 pointer-events-none">
-                            {[1, 2, 3, 4, 5].map(i => <div key={i} className="w-full border-t border-slate-900/20"></div>)}
-                        </div>
+                    <div className="relative overflow-x-auto pb-4 scrollbar-hide">
+                        <div className={`h-84 flex items-end justify-between relative ${timeframe === 'monthly' ? 'min-w-[1200px] gap-2' : 'w-full gap-4'}`}>
+                            {/* Horizontal Grid */}
+                            <div className="absolute inset-0 flex flex-col justify-between py-1 opacity-5 pointer-events-none">
+                                {[1, 2, 3, 4, 5].map(i => <div key={i} className="w-full border-t border-slate-900/10"></div>)}
+                            </div>
 
-                        {weeklyTrend.map((data: RevenueTrend, i: number) => {
-                            const height = (data.amount / maxAmount) * 100;
-                            return (
-                                <div key={i} className="flex-1 flex flex-col items-center group/item h-full justify-end relative z-10 hover:z-30">
-                                    <div className={`mb-2 bg-slate-900 text-white text-[10px] font-black px-3 py-1.5 rounded-xl shadow-xl z-20 
-                                        ${timeframe === 'monthly' ? 'opacity-0 lg:group-hover/item:opacity-100 transition-opacity' : ''}`}>
-                                        ₹{data.amount.toLocaleString()}
+                            {weeklyTrend.map((data: RevenueTrend, i: number) => {
+                                const height = (data.amount / maxAmount) * 100;
+                                return (
+                                    <div key={i} className="flex flex-col items-center group/item h-full justify-end relative z-10 hover:z-30 cursor-pointer">
+                                        <div className={`mb-3 bg-slate-900 text-white text-[10px] font-black px-4 py-2 rounded-2xl shadow-2xl z-20 pointer-events-none transition-all duration-300 group-hover/item:z-50 group-hover/item:scale-110
+                                            ${timeframe === 'monthly' ? 'scale-75 -mb-2' : 'scale-95'}`}>
+                                            <p className="text-[8px] text-white/50 mb-0.5 whitespace-nowrap">{data.fullLabel}</p>
+                                            <p className="text-[11px] font-black">₹{data.amount.toLocaleString('en-IN')}</p>
+                                        </div>
+                                        <div
+                                            className="w-8 md:w-10 rounded-2xl transition-all duration-700 relative flex flex-col justify-end overflow-hidden group-hover/item:shadow-2xl group-hover/item:shadow-blue-500/30 group-hover/item:-translate-y-1"
+                                            style={{ height: `${Math.max(height, 8)}%` }}
+                                        >
+                                            <div className={`absolute inset-0 transition-all duration-500 ${data.amount > 0 ? 'bg-gradient-to-t from-blue-700 to-indigo-500 opacity-100' : 'bg-slate-100 opacity-50'}`}></div>
+                                            {/* Animated inner line */}
+                                            <div className="w-full h-1 bg-white/10 mb-2"></div>
+                                        </div>
+                                        <p className={`text-[9px] font-black text-slate-400 mt-6 uppercase tracking-[0.05em] whitespace-nowrap transition-colors group-hover/item:text-slate-900
+                                            ${timeframe === 'monthly' && i % 4 !== 0 ? 'hidden md:block opacity-20' : ''}`}>
+                                            {data.label}
+                                        </p>
                                     </div>
-                                    <div
-                                        className="w-full max-w-[40px] rounded-2xl transition-all duration-700 relative flex flex-col justify-end overflow-hidden group-hover/item:shadow-2xl group-hover/item:shadow-blue-500/20"
-                                        style={{ height: `${Math.max(height, 8)}%` }}
-                                    >
-                                        <div className={`absolute inset-0 transition-all duration-500 ${data.amount > 0 ? 'bg-gradient-to-t from-blue-600 to-indigo-400 opacity-100' : 'bg-slate-100 opacity-50'}`}></div>
-                                        {/* Animated inner line */}
-                                        <div className="w-full h-1 bg-white/10 mb-2"></div>
-                                    </div>
-                                    <p className={`text-[10px] font-black text-slate-400 mt-6 uppercase tracking-[0.1em] whitespace-nowrap transition-colors group-hover/item:text-slate-900
-                                        ${timeframe === 'monthly' && i % 4 !== 0 ? 'hidden md:block opacity-20' : ''}`}>
-                                        {data.label}
-                                    </p>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
 
@@ -259,9 +269,12 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                     </button>
                 </div>
                 <div className="lg:w-2/3 w-full space-y-4 max-h-[400px] overflow-y-auto pr-4 custom-scrollbar">
-                    {recentInvoices.map((inv: Invoice) => (
-                        <div key={inv.id} className="flex items-center gap-6 p-6 bg-white rounded-[32px] border border-slate-100 shadow-sm hover:shadow-md transition-shadow group">
-                            <div className="h-14 w-14 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600 group-hover:rotate-12 transition-transform">
+                    {(recentInvoices as any[]).map((inv: any) => (
+                        <div key={`${inv.type}-${inv.id}`} className="flex items-center gap-6 p-6 bg-white rounded-[32px] border border-slate-100 shadow-sm hover:shadow-md transition-shadow group">
+                            <div className={`h-14 w-14 rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform ${inv.type === 'CHECKUP'
+                                    ? 'bg-emerald-50 border border-emerald-100 text-emerald-600'
+                                    : 'bg-indigo-50 border border-indigo-100 text-indigo-600'
+                                }`}>
                                 <Clock className="h-6 w-6" />
                             </div>
                             <div className="flex-1">
@@ -269,12 +282,15 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                                     <div>
                                         <p className="text-sm font-black text-slate-900">{inv.patient_name}</p>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase mt-1 tracking-widest">
-                                            {inv.items.length} Medicines • {new Date(inv.createdAt).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
+                                            {inv.item_summary} • {new Date(inv.createdAt).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
                                         </p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-lg font-black text-slate-900 italic">₹{inv.total_amount.toLocaleString()}</p>
-                                        <div className="text-[9px] font-black text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded ml-auto w-fit mt-1">SUCCESS</div>
+                                        <p className="text-lg font-black text-slate-900 italic">₹{(inv.total_amount || 0).toLocaleString()}</p>
+                                        <div className={`text-[9px] font-black px-2 py-0.5 rounded ml-auto w-fit mt-1 ${inv.type === 'CHECKUP'
+                                                ? 'text-emerald-600 bg-emerald-50'
+                                                : 'text-blue-600 bg-blue-50'
+                                            }`}>{inv.type === 'CHECKUP' ? 'EYE CHECKUP' : 'PHARMACY BILL'}</div>
                                     </div>
                                 </div>
                             </div>

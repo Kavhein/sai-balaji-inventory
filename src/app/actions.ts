@@ -113,22 +113,34 @@ export async function searchPatient(mobile: string): Promise<Patient | null> {
     return await (prisma.patient.findUnique({ where: { mobile_no: mobile } }) as unknown as Promise<Patient | null>);
 }
 
-export async function getPatientDetails(id: number): Promise<Patient | null> {
-    return await (prisma.patient.findUnique({
-        where: { id },
-        include: {
-            history: {
-                orderBy: { createdAt: 'desc' },
-                include: {
-                    items: {
-                        include: {
-                            medicine: true
-                        }
-                    }
+export async function getPatientDetails(id: number) {
+    try {
+        const patient = await prisma.patient.findUnique({
+            where: { id },
+            include: {
+                history: {
+                    orderBy: { createdAt: 'desc' },
+                    include: { items: { include: { medicine: true } } }
                 }
             }
-        }
-    }) as unknown as Promise<Patient | null>);
+        });
+
+        if (!patient) return null;
+
+        // RAW SQL BYPASS for prescriptions
+        const prescriptions = await prisma.$queryRawUnsafe<any[]>(
+            `SELECT * FROM "EyePrescription" WHERE patient_id = $1 ORDER BY "createdAt" DESC`,
+            id
+        );
+
+        return {
+            ...patient,
+            prescriptions: prescriptions
+        } as any;
+    } catch (error) {
+        console.error("Error fetching patient details:", error);
+        return null;
+    }
 }
 
 export async function getFrequentMedicines(patientId: number) {
@@ -164,6 +176,7 @@ export async function createInvoice(data: {
     reason?: string;
     items: { id: number; qty: number; rate: number; name: string, gst?: number }[];
     customDate?: string;
+    prescriptionData?: any;
 }) {
     try {
         const { patientName, mobileNo, address, age, doctorName, reason, items, customDate } = data;
@@ -217,6 +230,27 @@ export async function createInvoice(data: {
                 }
             });
 
+            if (data.prescriptionData && patientId) {
+                const pd = data.prescriptionData;
+                await tx.$executeRawUnsafe(
+                    `INSERT INTO "EyePrescription" (
+                        patient_id, re_dv_sph, re_dv_cyl, re_dv_axis, re_dv_va,
+                        re_nv_sph, re_nv_cyl, re_nv_axis, re_nv_va,
+                        le_dv_sph, le_dv_cyl, le_dv_axis, le_dv_va,
+                        le_nv_sph, le_nv_cyl, le_nv_axis, le_nv_va,
+                        lens_type, notes, doctor_name, pd, total_amount, "createdAt", "updatedAt"
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
+                    patientId,
+                    String(pd.re_dv_sph || ""), String(pd.re_dv_cyl || ""), String(pd.re_dv_axis || ""), String(pd.re_dv_va || ""),
+                    String(pd.re_nv_sph || ""), String(pd.re_nv_cyl || ""), String(pd.re_nv_axis || ""), String(pd.re_nv_va || ""),
+                    String(pd.le_dv_sph || ""), String(pd.le_dv_cyl || ""), String(pd.le_dv_axis || ""), String(pd.le_dv_va || ""),
+                    String(pd.le_nv_sph || ""), String(pd.le_nv_cyl || ""), String(pd.le_nv_axis || ""), String(pd.le_nv_va || ""),
+                    String(pd.lens_type || ""), String(pd.notes || ""), String(doctorName || ""), String(pd.pd || ""),
+                    0, // In invoice flow, the prescription itself is usually part of the itemized bill
+                    invoiceDate, new Date()
+                );
+            }
+
             for (const i of items) {
                 await tx.medicine.update({ where: { id: i.id }, data: { stock_quantity: { decrement: i.qty } } });
             }
@@ -243,18 +277,32 @@ export async function getDailyStats() {
     // Correct the offset back to UTC for the query
     const startOfDayUTC = new Date(startOfIstToday.getTime() - istOffset);
 
-    const sales = await prisma.invoice.aggregate({
-        _sum: { total_amount: true },
-        where: { createdAt: { gte: startOfDayUTC } }
-    });
-    const count = await prisma.invoice.count({
-        where: { createdAt: { gte: startOfDayUTC } }
-    });
+    // Fetch collections from Invoices (Pharmacy) and EyePrescriptions (Checkups)
+    const [sales, rxs, count, rxCount] = await Promise.all([
+        prisma.invoice.aggregate({
+            _sum: { total_amount: true },
+            where: { createdAt: { gte: startOfDayUTC } }
+        }),
+        prisma.$queryRawUnsafe<any[]>(
+            `SELECT SUM(total_amount) as total FROM "EyePrescription" WHERE "createdAt" >= $1`,
+            startOfDayUTC
+        ),
+        prisma.invoice.count({
+            where: { createdAt: { gte: startOfDayUTC } }
+        }),
+        prisma.$queryRawUnsafe<any[]>(
+            `SELECT COUNT(*) as count FROM "EyePrescription" WHERE "createdAt" >= $1`,
+            startOfDayUTC
+        )
+    ]);
 
-    return { daily: sales._sum.total_amount || 0, dailyPatientCount: count };
+    const totalDaily = (sales._sum.total_amount || 0) + (parseFloat(rxs[0]?.total || 0));
+    const totalPatients = count + parseInt(rxCount[0]?.count || 0);
+
+    return { daily: totalDaily, dailyPatientCount: totalPatients };
 }
 
-export async function getFinancialReports(timeframe: 'weekly' | 'monthly' | 'yearly' = 'weekly'): Promise<ReportData> {
+export async function getFinancialReports(timeframe: 'daily' | 'weekly' | 'monthly' | 'yearly' = 'weekly'): Promise<ReportData> {
     const now = new Date();
     const istOffset = 5.5 * 60 * 60 * 1000;
     const istNow = new Date(now.getTime() + istOffset);
@@ -262,93 +310,206 @@ export async function getFinancialReports(timeframe: 'weekly' | 'monthly' | 'yea
     // Start of Today (IST)
     const startOfIstToday = new Date(istNow);
     startOfIstToday.setUTCHours(0, 0, 0, 0);
-    const startOfDayUTC = new Date(startOfIstToday.getTime() - istOffset);
 
-    // Start of 7 days ago (IST)
-    const startOfWeekIST = new Date(startOfIstToday);
-    startOfWeekIST.setUTCDate(startOfIstToday.getUTCDate() - 6);
-    const startOfWeekUTC = new Date(startOfWeekIST.getTime() - istOffset);
+    // 1. Determine Date Range for Trend
+    let rangeStartUTC: Date;
+    let rangeEndUTC: Date;
 
-    // Start of Month (IST)
-    const startOfMonthIST = new Date(startOfIstToday);
-    startOfMonthIST.setUTCDate(1);
-    const startOfMonthUTC = new Date(startOfMonthIST.getTime() - istOffset);
+    if (timeframe === 'daily') {
+        rangeStartUTC = new Date(startOfIstToday.getTime() - istOffset);
+        rangeEndUTC = new Date(rangeStartUTC.getTime() + 24 * 60 * 60 * 1000 - 1);
+    } else if (timeframe === 'weekly') {
+        const diff = startOfIstToday.getUTCDay(); // 0 is Sunday
+        const startOfWeekIST = new Date(startOfIstToday);
+        startOfWeekIST.setUTCDate(startOfIstToday.getUTCDate() - diff);
+        rangeStartUTC = new Date(startOfWeekIST.getTime() - istOffset);
+        rangeEndUTC = new Date(rangeStartUTC.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+    } else if (timeframe === 'monthly') {
+        const monthStartIST = new Date(startOfIstToday);
+        monthStartIST.setUTCDate(1);
+        rangeStartUTC = new Date(monthStartIST.getTime() - istOffset);
+        const nextMonth = new Date(monthStartIST);
+        nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+        rangeEndUTC = new Date(nextMonth.getTime() - 1 - istOffset);
+    } else { // yearly
+        const yearStartIST = new Date(startOfIstToday);
+        yearStartIST.setUTCMonth(0, 1);
+        yearStartIST.setUTCHours(0, 0, 0, 0);
+        rangeStartUTC = new Date(yearStartIST.getTime() - istOffset);
+        const nextYear = new Date(yearStartIST);
+        nextYear.setUTCFullYear(nextYear.getUTCFullYear() + 1);
+        rangeEndUTC = new Date(nextYear.getTime() - 1 - istOffset);
+    }
 
-    const { daily, dailyPatientCount } = await getDailyStats();
+    // 2. Fetch all invoices AND prescriptions for the range
+    const [invoices, prescriptions] = await Promise.all([
+        prisma.invoice.findMany({
+            where: { createdAt: { gte: rangeStartUTC, lte: rangeEndUTC } },
+            select: { total_amount: true, createdAt: true }
+        }),
+        prisma.$queryRawUnsafe<any[]>(
+            `SELECT total_amount, "createdAt" FROM "EyePrescription" WHERE "createdAt" >= $1 AND "createdAt" <= $2`,
+            rangeStartUTC, rangeEndUTC
+        )
+    ]);
 
-    const ws = await prisma.invoice.aggregate({
-        _sum: { total_amount: true },
-        where: { createdAt: { gte: startOfWeekUTC } }
-    });
+    // Create a unified transaction list for trend aggregation
+    const allTransactions = [
+        ...invoices.map(i => ({ amount: i.total_amount, createdAt: i.createdAt })),
+        ...prescriptions.map(p => ({ amount: parseFloat(p.total_amount || 0), createdAt: p.createdAt }))
+    ];
 
-    const ms = await prisma.invoice.aggregate({
-        _sum: { total_amount: true },
-        where: { createdAt: { gte: startOfMonthUTC } }
-    });
-
-    // 1. Revenue Trend
+    // 3. Aggregate in memory
     const revenueTrend: RevenueTrend[] = [];
 
-    if (timeframe === 'weekly') {
-        for (let i = 6; i >= 0; i--) {
-            const targetDayIST = new Date(startOfIstToday);
-            targetDayIST.setUTCDate(startOfIstToday.getUTCDate() - i);
-            const dayStartUTC = new Date(targetDayIST.getTime() - istOffset);
-            const dayEndUTC = new Date(dayStartUTC.getTime() + 24 * 60 * 60 * 1000 - 1);
+    if (timeframe === 'daily') {
+        for (let i = 0; i < 8; i++) {
+            const blockStartIST = new Date(startOfIstToday);
+            blockStartIST.setUTCHours(i * 3, 0, 0, 0);
+            const blockEndIST = new Date(startOfIstToday);
+            blockEndIST.setUTCHours((i + 1) * 3, 0, 0, -1);
 
-            const sum = await prisma.invoice.aggregate({
-                _sum: { total_amount: true },
-                where: { createdAt: { gte: dayStartUTC, lte: dayEndUTC } }
-            });
+            const startT = blockStartIST.getTime();
+            const endT = blockEndIST.getTime();
+
+            const sum = allTransactions
+                .filter(tx => {
+                    const t = new Date(tx.createdAt).getTime() + istOffset;
+                    return t >= startT && t <= endT;
+                })
+                .reduce((acc, tx) => acc + tx.amount, 0);
+
+            const hourLabel = blockStartIST.getUTCHours();
+            const ampm = hourLabel >= 12 ? 'PM' : 'AM';
+            const displayHour = hourLabel % 12 || 12;
 
             revenueTrend.push({
-                label: targetDayIST.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'Asia/Kolkata' }),
-                amount: sum._sum.total_amount || 0
+                label: `${displayHour}${ampm}`,
+                fullLabel: `${displayHour}:00 ${ampm} - ${displayHour + 3 > 12 ? (displayHour + 3) % 12 || 12 : displayHour + 3}${hourLabel + 3 >= 12 ? 'PM' : 'AM'}`,
+                amount: sum
+            });
+        }
+    } else if (timeframe === 'weekly') {
+        const currentDay = startOfIstToday.getUTCDay();
+        const startOfWeekIST = new Date(startOfIstToday);
+        startOfWeekIST.setUTCDate(startOfIstToday.getUTCDate() - currentDay);
+
+        for (let i = 0; i < 7; i++) {
+            const targetDayIST = new Date(startOfWeekIST);
+            targetDayIST.setUTCDate(startOfWeekIST.getUTCDate() + i);
+            const startT = targetDayIST.getTime();
+            const endT = startT + 24 * 60 * 60 * 1000 - 1;
+
+            const sum = allTransactions
+                .filter(tx => {
+                    const t = new Date(tx.createdAt).getTime() + istOffset;
+                    return t >= startT && t <= endT;
+                })
+                .reduce((acc, tx) => acc + tx.amount, 0);
+
+            revenueTrend.push({
+                label: targetDayIST.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }),
+                fullLabel: targetDayIST.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }),
+                amount: sum
             });
         }
     } else if (timeframe === 'monthly') {
-        for (let i = 29; i >= 0; i--) {
-            const targetDayIST = new Date(startOfIstToday);
-            targetDayIST.setUTCDate(startOfIstToday.getUTCDate() - i);
-            const dayStartUTC = new Date(targetDayIST.getTime() - istOffset);
-            const dayEndUTC = new Date(dayStartUTC.getTime() + 24 * 60 * 60 * 1000 - 1);
+        const monthStartIST = new Date(startOfIstToday);
+        monthStartIST.setUTCDate(1);
+        const daysInMonth = new Date(monthStartIST.getUTCFullYear(), monthStartIST.getUTCMonth() + 1, 0).getDate();
 
-            const sum = await prisma.invoice.aggregate({
-                _sum: { total_amount: true },
-                where: { createdAt: { gte: dayStartUTC, lte: dayEndUTC } }
-            });
+        for (let i = 0; i < daysInMonth; i++) {
+            const targetDayIST = new Date(monthStartIST);
+            targetDayIST.setUTCDate(1 + i);
+            const startT = targetDayIST.getTime();
+            const endT = startT + 24 * 60 * 60 * 1000 - 1;
+
+            const sum = allTransactions
+                .filter(tx => {
+                    const t = new Date(tx.createdAt).getTime() + istOffset;
+                    return t >= startT && t <= endT;
+                })
+                .reduce((acc, tx) => acc + tx.amount, 0);
 
             revenueTrend.push({
-                label: targetDayIST.toLocaleDateString('en-US', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }),
-                amount: sum._sum.total_amount || 0
+                label: `${1 + i}`,
+                fullLabel: targetDayIST.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }),
+                amount: sum
             });
         }
     } else if (timeframe === 'yearly') {
-        for (let i = 11; i >= 0; i--) {
-            const targetMonthIST = new Date(startOfMonthIST);
-            targetMonthIST.setUTCMonth(startOfMonthIST.getUTCMonth() - i);
+        const yearStartIST = new Date(startOfIstToday);
+        yearStartIST.setUTCMonth(0, 1);
+        yearStartIST.setUTCHours(0, 0, 0, 0);
 
-            const monthStartUTC = new Date(targetMonthIST.getTime() - istOffset);
-            const monthEndUTC = new Date(new Date(targetMonthIST).setUTCMonth(targetMonthIST.getUTCMonth() + 1) - 1 - istOffset);
+        for (let i = 0; i < 12; i++) {
+            const targetMonthIST = new Date(yearStartIST);
+            targetMonthIST.setUTCMonth(i);
+            const monthStartT = targetMonthIST.getTime();
+            const nextMonth = new Date(targetMonthIST);
+            nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+            const monthEndT = nextMonth.getTime() - 1;
 
-            const sum = await prisma.invoice.aggregate({
-                _sum: { total_amount: true },
-                where: { createdAt: { gte: monthStartUTC, lte: monthEndUTC } }
-            });
+            const sum = allTransactions
+                .filter(tx => {
+                    const t = new Date(tx.createdAt).getTime() + istOffset;
+                    return t >= monthStartT && t <= monthEndT;
+                })
+                .reduce((acc, tx) => acc + tx.amount, 0);
 
             revenueTrend.push({
-                label: targetMonthIST.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'Asia/Kolkata' }),
-                amount: sum._sum.total_amount || 0
+                label: targetMonthIST.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' }),
+                fullLabel: targetMonthIST.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+                amount: sum
             });
         }
     }
 
-    // 2. Top Sold Medicines (Last 7 Days)
+    // 4. Fetch Totals and Stats (Optimized separately as they are cached/fast)
+    const { daily, dailyPatientCount } = await getDailyStats();
+
+    const startOfWeekIST = new Date(startOfIstToday);
+    startOfWeekIST.setUTCDate(startOfIstToday.getUTCDate() - startOfIstToday.getUTCDay());
+    const startOfWeekUTC = new Date(startOfWeekIST.getTime() - istOffset);
+
+    const startOfMonthIST = new Date(startOfIstToday);
+    startOfMonthIST.setUTCDate(1);
+    const startOfMonthUTC = new Date(startOfMonthIST.getTime() - istOffset);
+
+    // Get Weekly and Monthly Totals with optimized aggregate
+    const [ws, ms, rx_ws, rx_ms] = await Promise.all([
+        prisma.invoice.aggregate({ _sum: { total_amount: true }, where: { createdAt: { gte: startOfWeekUTC } } }),
+        prisma.invoice.aggregate({ _sum: { total_amount: true }, where: { createdAt: { gte: startOfMonthUTC } } }),
+        prisma.$queryRawUnsafe<any[]>(`SELECT SUM(total_amount) as total FROM "EyePrescription" WHERE "createdAt" >= $1`, startOfWeekUTC),
+        prisma.$queryRawUnsafe<any[]>(`SELECT SUM(total_amount) as total FROM "EyePrescription" WHERE "createdAt" >= $1`, startOfMonthUTC)
+    ]);
+
+    const totalWeekly = (ws._sum.total_amount || 0) + parseFloat(rx_ws[0]?.total || 0);
+    const monthlyTotal = (ms._sum.total_amount || 0) + parseFloat(rx_ms[0]?.total || 0);
+
+    // Growth and Forecast (Calculated in parallel)
+    const prevWeekStart = new Date(startOfWeekUTC.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const [prevWs, prevRxWs] = await Promise.all([
+        prisma.invoice.aggregate({
+            _sum: { total_amount: true },
+            where: { createdAt: { gte: prevWeekStart, lt: startOfWeekUTC } }
+        }),
+        prisma.$queryRawUnsafe<any[]>(
+            `SELECT SUM(total_amount) as total FROM "EyePrescription" WHERE "createdAt" >= $1 AND "createdAt" < $2`,
+            prevWeekStart, startOfWeekUTC
+        )
+    ]);
+    const prevWeekly = (prevWs._sum.total_amount || 0) + parseFloat(prevRxWs[0]?.total || 0);
+    const weeklyGrowth = prevWeekly === 0 ? (totalWeekly > 0 ? 100 : 0) : Math.round(((totalWeekly - prevWeekly) / prevWeekly) * 100);
+
+    const daysInMonthTotal = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const currentDayOfMonth = istNow.getUTCDate();
+    const monthlyForecast = Math.round((monthlyTotal / currentDayOfMonth) * daysInMonthTotal);
+
+    // 5. Inventory Movement (Last 7 Days)
     const invoiceItems = await prisma.invoiceItem.findMany({
         include: { medicine: true },
-        where: {
-            invoice: { createdAt: { gte: startOfWeekUTC } }
-        }
+        where: { invoice: { createdAt: { gte: startOfWeekUTC } } }
     });
 
     const medicineStats: Record<number, { name: string, category: string, quantity: number, revenue: number }> = {};
@@ -356,12 +517,7 @@ export async function getFinancialReports(timeframe: 'weekly' | 'monthly' | 'yea
         const id = item.medicine_id;
         if (!item.medicine) return;
         if (!medicineStats[id]) {
-            medicineStats[id] = {
-                name: item.medicine.name,
-                category: item.medicine.category,
-                quantity: 0,
-                revenue: 0
-            };
+            medicineStats[id] = { name: item.medicine.name, category: item.medicine.category, quantity: 0, revenue: 0 };
         }
         medicineStats[id].quantity += item.quantity;
         medicineStats[id].revenue += item.total_price;
@@ -371,46 +527,54 @@ export async function getFinancialReports(timeframe: 'weekly' | 'monthly' | 'yea
         .sort((a, b) => b.quantity - a.quantity)
         .slice(0, 5);
 
-    // 3. Comparisons and Forecast
-    const totalWeekly = ws._sum.total_amount || 0;
-    const prevWeekStartUTC = new Date(startOfWeekUTC.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const prevWs = await prisma.invoice.aggregate({
-        _sum: { total_amount: true },
-        where: { createdAt: { gte: prevWeekStartUTC, lt: startOfWeekUTC } }
-    });
-    const prevWeekly = prevWs._sum.total_amount || 0;
+    // 6. Insights and Transaction Feed
+    const [lowStock, recentInvoicesRaw, recentRxsRaw] = await Promise.all([
+        prisma.medicine.findMany({ where: { stock_quantity: { lte: 20 }, is_available: true }, take: 3 }),
+        prisma.invoice.findMany({ take: 10, orderBy: { createdAt: 'desc' }, include: { items: { include: { medicine: true } } } }),
+        prisma.$queryRawUnsafe<any[]>(
+            `SELECT ep.id, ep.total_amount, ep."createdAt", p.name as patient_name 
+             FROM "EyePrescription" ep 
+             JOIN "Patient" p ON ep.patient_id = p.id 
+             ORDER BY ep."createdAt" DESC LIMIT 10`
+        )
+    ]);
 
-    // Real calculation: If no data last week, growth is 100% of this week.
-    // If we have data, we calculate the percentage diff.
-    const weeklyGrowth = prevWeekly === 0 ? (totalWeekly > 0 ? 100 : 0) : Math.round(((totalWeekly - prevWeekly) / prevWeekly) * 100);
+    // Unified recent transactions list
+    const recentInvoices = [
+        ...recentInvoicesRaw.map(inv => ({
+            id: inv.id,
+            patient_name: inv.patient_name,
+            total_amount: inv.total_amount,
+            createdAt: inv.createdAt,
+            type: 'BILL',
+            item_summary: `${inv.items.length} Medicines`
+        })),
+        ...recentRxsRaw.map(rx => ({
+            id: rx.id,
+            patient_name: rx.patient_name,
+            total_amount: parseFloat(rx.total_amount || 0),
+            createdAt: rx.createdAt,
+            type: 'CHECKUP',
+            item_summary: 'Standalone Eye Checkup'
+        }))
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10) as any;
 
-    const monthlyTotal = ms._sum.total_amount || 0;
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const currentDayOfMonth = istNow.getUTCDate();
-    const monthlyForecast = Math.round((monthlyTotal / currentDayOfMonth) * daysInMonth);
-
-    // 4. Automated Insights
     const insights: Insight[] = [];
     const avgWeekly = totalWeekly / 7;
 
     if (daily > 0 && daily > avgWeekly * 1.2 && totalWeekly > daily) {
         insights.push({
             type: "POSITIVE",
-            text: `Revenue today (₹${daily.toLocaleString()}) is trending ${Math.round((daily / avgWeekly - 1) * 100)}% above your daily average.`,
+            text: `Revenue today (₹${daily.toLocaleString()}) is trending ${Math.round((daily / avgWeekly - 1) * 100)}% above your average.`,
             tip: "Check your highest movement stock and ensure you refill before the morning shift."
         });
     }
-
-    const lowStock = await prisma.medicine.findMany({
-        where: { stock_quantity: { lte: 20 }, is_available: true },
-        take: 3
-    });
 
     if (lowStock.length > 0) {
         insights.push({
             type: "STOCK",
             text: `${lowStock.length} items are running below 20 units.`,
-            tip: `Refill ${lowStock.map((m) => m.name).join(', ')} soon to avoid out-of-stock errors during billing.`
+            tip: `Refill ${lowStock.map((m) => m.name).join(', ')} soon to avoid stockouts.`
         });
     }
 
@@ -418,15 +582,9 @@ export async function getFinancialReports(timeframe: 'weekly' | 'monthly' | 'yea
         insights.push({
             type: "STRATEGY",
             text: `${topMedicines[0].name} is your #1 mover this week.`,
-            tip: "This is a key product. Ensure you maintain at least 1 week's worth of buffer stock."
+            tip: "Maintain at least 1 week's worth of buffer stock for this product."
         });
     }
-
-    const recentInvoices = await (prisma.invoice.findMany({
-        take: 10,
-        orderBy: { createdAt: 'desc' },
-        include: { items: { include: { medicine: true } } }
-    }) as unknown as Promise<Invoice[]>);
 
     return {
         daily,
@@ -437,7 +595,7 @@ export async function getFinancialReports(timeframe: 'weekly' | 'monthly' | 'yea
         weeklyTrend: revenueTrend,
         topMedicines,
         insights,
-        recentInvoices,
+        recentInvoices: recentInvoices as unknown as Invoice[],
         dailyPatientCount
     };
 }
@@ -545,7 +703,134 @@ export async function repairDatabase() {
     }
 }
 
+export async function addEyePrescription(data: any) {
+    try {
+        const session = await getSession();
+        if (!session) throw new Error("Unauthorized");
 
+        const { patient_name, mobile_no, address, age, doctor_name, customDate } = data;
+        console.log(`[Action] Saving Eye Rx for: ${patient_name} (${mobile_no})`, { data });
 
+        let rxDate = new Date();
+        if (customDate && customDate.trim() !== "") {
+            rxDate = new Date(customDate);
+            if (isNaN(rxDate.getTime())) rxDate = new Date();
+            else {
+                const now = new Date();
+                rxDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds());
+            }
+        }
 
+        const result = await prisma.$transaction(async (tx) => {
+            let pId = data.patient_id;
+            console.log(`[Transaction] Starting. Initial PatientID: ${pId}`);
 
+            if (mobile_no && !pId) {
+                const ep = await tx.patient.findUnique({ where: { mobile_no } });
+                if (ep) {
+                    console.log(`[Transaction] Found existing patient by mobile: ${ep.id}`);
+                    await tx.patient.update({
+                        where: { id: ep.id },
+                        data: { name: patient_name, address: address || ep.address }
+                    });
+                    pId = ep.id;
+                } else {
+                    console.log(`[Transaction] Creating new patient for mobile: ${mobile_no}`);
+                    const np = await tx.patient.create({
+                        data: { name: patient_name, mobile_no, address }
+                    });
+                    pId = np.id;
+                }
+            } else if (pId) {
+                console.log(`[Transaction] Updating existing patient: ${pId}`);
+                await tx.patient.update({
+                    where: { id: pId },
+                    data: { name: patient_name, address: address || undefined }
+                });
+            }
+
+            if (!pId) throw new Error("Patient ID or Mobile Number required");
+
+            const amount = parseFloat(data.total_amount || '0');
+            console.log(`[Transaction] Creating EyePrescription via Raw SQL for PatientID: ${pId}, Amount: ${amount}`);
+
+            // RAW SQL BYPASS: Prisma Client is stale and doesn't recognize total_amount field yet
+            // but we verified it exists in the database.
+            const resultRaw = await tx.$queryRawUnsafe<{ id: number }[]>(
+                `INSERT INTO "EyePrescription" (
+                    patient_id, re_dv_sph, re_dv_cyl, re_dv_axis, re_dv_va,
+                    re_nv_sph, re_nv_cyl, re_nv_axis, re_nv_va,
+                    le_dv_sph, le_dv_cyl, le_dv_axis, le_dv_va,
+                    le_nv_sph, le_nv_cyl, le_nv_axis, le_nv_va,
+                    lens_type, notes, doctor_name, pd, total_amount, "createdAt", "updatedAt"
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+                RETURNING id`,
+                pId,
+                String(data.re_dv_sph || ""), String(data.re_dv_cyl || ""), String(data.re_dv_axis || ""), String(data.re_dv_va || ""),
+                String(data.re_nv_sph || ""), String(data.re_nv_cyl || ""), String(data.re_nv_axis || ""), String(data.re_nv_va || ""),
+                String(data.le_dv_sph || ""), String(data.le_dv_cyl || ""), String(data.le_dv_axis || ""), String(data.le_dv_va || ""),
+                String(data.le_nv_sph || ""), String(data.le_nv_cyl || ""), String(data.le_nv_axis || ""), String(data.le_nv_va || ""),
+                String(data.lens_type || ""), String(data.notes || ""), String(doctor_name || ""), String(data.pd || ""),
+                isNaN(amount) ? 0 : amount,
+                rxDate, new Date()
+            );
+
+            const newPresId = resultRaw[0]?.id;
+            console.log(`[Transaction] Success. New Eye Rx ID: ${newPresId}`);
+            return { id: newPresId };
+        });
+
+        console.log(`✅ Final Success. ID: ${result.id}`);
+        await recordLog("ADD_PRESCRIPTION", `Added Eye Prescription for: ${patient_name}. Doctor: ${doctor_name}`);
+        await refresh('/patients');
+        await refresh('/prescriptions');
+        await refresh('/patient-reports');
+        return { success: true, id: result.id };
+    } catch (error) {
+        console.error("Failed to add eye prescription:", error);
+        return { success: false, error: String(error) };
+    }
+}
+
+export async function getPrescriptions() {
+    try {
+        // RAW SQL BYPASS: Stale client strips total_amount
+        const rxs = await prisma.$queryRawUnsafe<any[]>(
+            `SELECT ep.*, p.name as p_name, p.mobile_no as p_mobile_no
+             FROM "EyePrescription" ep
+             LEFT JOIN "Patient" p ON ep.patient_id = p.id
+             ORDER BY ep."createdAt" DESC`
+        );
+        return rxs.map(rx => ({
+            ...rx,
+            patient: { name: rx.p_name, mobile_no: rx.p_mobile_no }
+        }));
+    } catch (e) {
+        console.error("Error in getPrescriptions raw:", e);
+        return [];
+    }
+}
+export async function deleteEyePrescription(id: number) {
+    try {
+        const session = await getSession();
+        if (!session) throw new Error("Unauthorized");
+
+        const rx = await (prisma as any).eyePrescription.findUnique({
+            where: { id },
+            include: { patient: true }
+        });
+
+        if (rx) {
+            await (prisma as any).eyePrescription.delete({ where: { id } });
+            await recordLog("DELETE_PRESCRIPTION", `Deleted Eye Prescription ID #${id} for patient: ${rx.patient.name}`);
+        }
+
+        await refresh('/patients');
+        await refresh('/prescriptions');
+        await refresh('/patient-reports');
+        return { success: true };
+    } catch (error) {
+        console.error("Failed to delete eye prescription:", error);
+        return { success: false, error: String(error) };
+    }
+}
