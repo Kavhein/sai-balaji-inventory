@@ -41,3 +41,21 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# custom debug/data files
+*.txt
+*.log
+*.csv
+*.db
+*.db-journal
+audit_*.md
+invoices.json
+orphaned_results.json
+lint-results.json
+analyze_orphans.ts
+check_jeeva.ts
+final_audit.ts
+verify_db.ts
+seed_medicines.ts
+debug_revenue.ts
+check-model.js
