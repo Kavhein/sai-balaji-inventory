@@ -9,16 +9,23 @@ export default function DeletePatientButton({ id, isAdmin }: { id: number; isAdm
     const [loading, setLoading] = useState(false);
 
     const handleDelete = async () => {
-        if (confirm("Are you sure you want to delete this patient? This will ALSO PERMANENTLY DELETE all their previous invoices, prescriptions, and associated records.")) {
-            setLoading(true);
-            try {
-                await deletePatient(id);
-            } catch (err) {
-                alert("Failed to delete patient");
-                console.error(err);
-            } finally {
-                setLoading(false);
-            }
+        const answer = window.prompt("Are you sure you want to delete this patient? This will ALSO PERMANENTLY DELETE all their previous invoices, prescriptions, and associated records.\n\nEnter password to confirm:");
+
+        if (answer === null) return;
+
+        if (answer !== "RENU30") {
+            alert("Wrong password!");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            await deletePatient(id);
+        } catch (err) {
+            alert("Failed to delete patient");
+            console.error(err);
+        } finally {
+            setLoading(false);
         }
     };
 

@@ -4,6 +4,7 @@ import { Plus, Trash2, Power, Search, Package, AlertCircle, Stethoscope } from "
 import { addMedicine, deleteMedicine, toggleStock, getDailyStats } from "./actions";
 import { getSession } from "@/lib/auth";
 import EditStockButton from "./StockEditor";
+import DeleteMedicineButton from "./delete-medicine-button";
 import { Medicine } from "@/lib/types";
 
 // Redundant repair button removed after successful DB fix
@@ -121,11 +122,7 @@ export default async function InventoryPage({
                       </span>
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <form action={deleteMedicine.bind(null, med.id)}>
-                        <button type="submit" className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all" title="Delete">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </form>
+                      <DeleteMedicineButton id={med.id} />
                     </td>
                   </tr>
                 ))}

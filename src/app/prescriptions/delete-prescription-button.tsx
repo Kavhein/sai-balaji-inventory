@@ -12,19 +12,26 @@ export default function DeletePrescriptionButton({ id, isAdmin }: { id: number; 
         e.preventDefault();
         e.stopPropagation();
 
-        if (confirm("Are you sure you want to delete this eye prescription record? This action cannot be undone.")) {
-            setLoading(true);
-            try {
-                const result = await deleteEyePrescription(id);
-                if (!result.success) {
-                    alert("Error: " + result.error);
-                }
-            } catch (err) {
-                alert("Failed to delete prescription");
-                console.error(err);
-            } finally {
-                setLoading(false);
+        const answer = window.prompt("Are you sure you want to delete this eye prescription record? These records are password protected.\n\nEnter password to confirm:");
+
+        if (answer === null) return;
+
+        if (answer !== "RENU30") {
+            alert("Wrong password!");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const result = await deleteEyePrescription(id);
+            if (!result.success) {
+                alert("Error: " + result.error);
             }
+        } catch (err) {
+            alert("Failed to delete prescription");
+            console.error(err);
+        } finally {
+            setLoading(false);
         }
     };
 
