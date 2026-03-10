@@ -37,18 +37,16 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className={`${inter.className} bg-mesh text-gray-900 flex flex-col md:flex-row h-screen overflow-hidden`}>
+      <body className={`${inter.className} bg-mesh text-gray-900 flex flex-col md:flex-row h-[100dvh] overflow-hidden print:h-auto print:overflow-visible print:bg-white print:block`}>
         <ToastProvider>
           <PWARegister />
           <MobileHeader role={role} />
 
           <Sidebar role={role} />
 
-          <main className="flex-1 overflow-auto p-4 md:p-8 pb-20 md:pb-8">
+          <main className="flex-1 overflow-auto p-4 md:p-8 print:p-0 print:overflow-visible print:block">
             {children}
           </main>
-
-          <Sidebar isMobile role={role} />
         </ToastProvider>
       </body>
     </html>
