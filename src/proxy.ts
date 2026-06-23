@@ -17,7 +17,7 @@ export function proxy(request: NextRequest) {
             request.nextUrl.pathname.startsWith('/reports') ||
             request.nextUrl.pathname.startsWith('/logs');
 
-        if (role === 'sister' && isRestrictedPage) {
+        if (role !== 'admin' && isRestrictedPage) {
             return NextResponse.redirect(new URL('/', request.url));
         }
 
@@ -30,7 +30,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
 }
 
-// Ensure proxy runs on all routes except static files and icons
+// Ensure proxy runs on all routes except static files, PWA files, and icons
 export const config = {
-    matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+    matcher: ['/((?!api|_next/static|_next/image|favicon.ico|manifest.json|icon.png).*)'],
 };

@@ -17,7 +17,6 @@ export default async function InventoryPage({
   const { q: query } = await searchParams;
   const { daily, dailyPatientCount } = await getDailyStats();
   const role = await getSession();
-
   const medicines = await prisma.medicine.findMany({
     where: {
       is_available: true,
@@ -27,6 +26,8 @@ export default async function InventoryPage({
       name: "asc",
     },
   }) as unknown as Medicine[];
+
+  console.log(`[Sai Balaji] Rerendering dashboard. Role: "${role}", Query: "${query || ''}", Total visible medicines: ${medicines.length}`);
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -98,12 +99,11 @@ export default async function InventoryPage({
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-2">
-                        <form action={toggleStock.bind(null, med.id, med.is_available)}>
-                          <button
-                            type="submit"
-                            className={`group/btn relative inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${med.is_available
-                              ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300"
-                              : "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100 hover:border-rose-300"
+                        {role !== 'admin' ? (
+                          <div
+                            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${med.is_available
+                              ? "bg-emerald-50 border-emerald-100 text-emerald-700"
+                              : "bg-rose-50 border-rose-100 text-rose-700"
                               }`}
                           >
                             <span className={`w-2 h-2 rounded-full ${med.is_available ? "bg-emerald-500" : "bg-rose-500"}`}></span>
@@ -111,8 +111,24 @@ export default async function InventoryPage({
                             <span className="text-slate-400 pl-1 border-l border-slate-200 ml-1">
                               {med.stock_quantity} units
                             </span>
-                          </button>
-                        </form>
+                          </div>
+                        ) : (
+                          <form action={toggleStock.bind(null, med.id, med.is_available)}>
+                            <button
+                              type="submit"
+                              className={`group/btn relative inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-200 ${med.is_available
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300"
+                                : "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100 hover:border-rose-300"
+                                }`}
+                            >
+                              <span className={`w-2 h-2 rounded-full ${med.is_available ? "bg-emerald-500" : "bg-rose-500"}`}></span>
+                              {med.is_available ? "In Stock" : "Out of Stock"}
+                              <span className="text-slate-400 pl-1 border-l border-slate-200 ml-1">
+                                {med.stock_quantity} units
+                              </span>
+                            </button>
+                          </form>
+                        )}
                         <EditStockButton id={med.id} initialStock={med.stock_quantity} />
                       </div>
                     </td>

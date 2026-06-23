@@ -48,6 +48,10 @@ export async function addMedicine(formData: FormData) {
 }
 
 export async function toggleStock(id: number, currentStatus: boolean) {
+    const role = await getSession();
+    if (role !== 'admin') {
+        throw new Error("You do not have permission to make medicines active or inactive.");
+    }
     await prisma.medicine.update({ where: { id }, data: { is_available: !currentStatus } });
     const medicine = await prisma.medicine.findUnique({ where: { id } });
     await recordLog("TOGGLE_STOCK", `Stock Status Changed: ${medicine?.name || 'Medicine'} (ID: ${id}) is now ${!currentStatus ? 'AVAILABLE' : 'UNAVAILABLE'}`);
@@ -55,6 +59,10 @@ export async function toggleStock(id: number, currentStatus: boolean) {
 }
 
 export async function deleteMedicine(id: number) {
+    const role = await getSession();
+    if (role !== 'admin') {
+        throw new Error("You do not have permission to delete medicines.");
+    }
     const medicine = await prisma.medicine.findUnique({ where: { id } });
     try {
         await prisma.medicine.delete({ where: { id } });
